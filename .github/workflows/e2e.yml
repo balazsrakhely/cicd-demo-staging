@@ -1,0 +1,83 @@
+# .github/workflows/e2e.yml
+# The question CI has not answered yet: does the image actually run?
+# `go test` proves the code works. It says nothing about whether the image
+# starts, whether the probes pass, or whether the Service routes to it.
+# So the runner builds a real one-node Kubernetes cluster with kind, applies
+# the manifests from k8s/, and asks the Service for /healthz.
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (default: sha-<this commit>)'
+        required: false
+        default: ''
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Work out which tag to deploy
+        id: tag
+        run: |
+          tag="${{ inputs.image_tag }}"
+          if [ -z "$tag" ]; then
+            tag="sha-$(git rev-parse --short=7 HEAD)"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "deploying ghcr.io/${{ github.repository }}:$tag"
+
+      # Waits for the image the build-push workflow is pushing for this same
+      # commit. Two workflows triggered by one push run at the same time, and
+      # nothing makes them take turns — so this job has to wait for its input.
+      - name: Wait for the image to exist
+        run: |
+          image="ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}"
+          for i in $(seq 1 40); do
+            if docker manifest inspect "$image" >/dev/null 2>&1; then
+              echo "found $image after $((i*15))s at most"; exit 0
+            fi
+            echo "not there yet, waiting 15s ($i/40)"; sleep 15
+          done
+          echo "::error::$image never appeared. Did Build and push fail?"
+          exit 1
+
+      - uses: helm/kind-action@v1
+
+      - name: Point the Deployment at this image
+        run: |
+          sed -i "s|image: .*|image: ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}|" k8s/deployment.yaml
+          grep 'image:' k8s/deployment.yaml
+
+      - run: kubectl apply -f k8s/
+
+      # The startup probe has to pass before a Pod is ready, so this wait is
+      # the probes doing their job. It is also where a bad image shows up:
+      # a tag that does not exist leaves the Pods in ImagePullBackOff and
+      # this times out.
+      - name: Wait for the rollout
+        run: kubectl rollout status deploy/hello --timeout=90s
+
+      - name: Ask the Service for /healthz
+        run: |
+          kubectl port-forward svc/hello 8080:80 &
+          sleep 3
+          curl --fail --silent --show-error --retry 5 --retry-connrefused \
+            http://localhost:8080/healthz
+          curl --fail --silent http://localhost:8080/
+
+      # Runs whatever happened above, so a red run explains itself in its own
+      # log instead of needing a cluster you no longer have.
+      - name: What the cluster thinks, pass or fail
+        if: always()
+        run: |
+          kubectl get pods -o wide
+          kubectl get endpointslices
+          kubectl describe deploy/hello | tail -20
+          kubectl describe pods | grep -A5 -E 'Events:' || true
