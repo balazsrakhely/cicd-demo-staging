@@ -38,7 +38,8 @@ jobs:
           tags: |
             type=sha
 
-      - uses: docker/build-push-action@v7
+      - id: build
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -47,7 +48,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The digest comes from the BUILD step. metadata-action's `version`
+      # output is the primary tag, not a digest — printing that as "digest:"
+      # is a mistake you will believe for months.
       - name: Show what was pushed
         run: |
           echo "tags:   ${{ steps.meta.outputs.tags }}"
-          echo "digest: ${{ steps.meta.outputs.version }}"
+          echo "digest: ${{ steps.build.outputs.digest }}"

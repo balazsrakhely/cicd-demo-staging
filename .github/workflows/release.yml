@@ -5,7 +5,11 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    # v[0-9]* and not v*: metadata-action's semver patterns produce no tags at
+    # all for something like `v-wip`, and build-push-action with an empty tag
+    # list fails in a way that takes ten minutes to understand.
+    tags: ['v[0-9]*']
+  workflow_dispatch:
 
 jobs:
   release:
@@ -32,6 +36,10 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          # Without this, the action's default (latest=auto) adds a `latest`
+          # tag as soon as any semver tag is produced — so a workflow that
+          # never mentions `latest` publishes one anyway.
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

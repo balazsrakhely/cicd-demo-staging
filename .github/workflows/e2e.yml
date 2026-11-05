@@ -20,6 +20,11 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
 
+    # Reading is all this job does: clone the repo, pull the image.
+    permissions:
+      contents: read
+      packages: read
+
     steps:
       - uses: actions/checkout@v7
 
