@@ -35,5 +35,3 @@ func main() {
 	log.Printf("listening on :%s", p)
 	log.Fatal(http.ListenAndServe(":"+p, newMux()))
 }
-
-// auto-merge flow check
