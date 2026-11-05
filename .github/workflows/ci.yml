@@ -1,9 +1,14 @@
-# The first workflow: .github/workflows/ci.yml
-# Short on purpose. This is the file you type in front of the room.
+# The gate: .github/workflows/ci.yml, second version.
+# Two changes from examples/s2-03/ci-first.yml:
+#   - pull_request is added to the triggers, so the check reports on PRs
+#   - go vet runs before the tests, because a vet failure is cheaper to read
+# The job is still called `test`. That name is what the branch ruleset
+# requires, so renaming the job silently disables the gate.
 name: CI
 
 on:
   push:
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -15,5 +20,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+
+      - run: go vet ./...
 
       - run: go test -v ./...
