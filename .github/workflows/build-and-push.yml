@@ -1,0 +1,90 @@
+# .github/workflows/build-and-push.yml
+# Publishing happens in one place: after a merge to main. No pull request can
+# reach this file's job, so nothing unreviewed ever becomes an image.
+name: Build and push
+
+on:
+  push:
+    branches: [main]
+    # Only these paths can change what the image contains. A merge that
+    # touches nothing but the README publishes nothing, and costs nothing.
+    paths:
+      - '**.go'
+      - go.mod
+      - Dockerfile
+      - .dockerignore
+      - VERSION
+      - .github/workflows/build-and-push.yml
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to publish, e.g. 0.2.0-rc1'
+        required: true       # a manual publish with no name is never what you meant
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+
+    # GITHUB_TOKEN is minted for this run and dies with it. By default it
+    # cannot write packages; everything not listed here is none.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Where the two triggers part ways. A merge to main publishes the
+      # version the repository declares, and moves latest to it. A manual run
+      # publishes the tag you typed, and moves nothing: latest must keep
+      # meaning "what is on main".
+      - name: Work out the tag
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "push" ]; then
+            tag="$(tr -d '[:space:]' < VERSION)"
+            latest=yes
+          else
+            tag="$INPUT_TAG"
+            latest=no
+          fi
+          # A repository name may carry capitals; an image name may not.
+          image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          echo "image=$image"   >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"       >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "publishing $image:$tag (move latest: $latest)"
+
+      # Same two commands as lesson 01, with no personal access token in
+      # sight. The secret goes in through an environment variable and then
+      # through stdin, so it never appears in a command line.
+      - name: Log in to ghcr.io
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+
+      - name: Build
+        env:
+          REF: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.tag }}
+        run: docker build -t "$REF" .
+
+      - name: Push
+        env:
+          REF: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.tag }}
+        run: |
+          docker push "$REF"
+          docker image inspect "$REF" --format '{{join .RepoDigests "\n"}}'
+
+      - name: Move latest
+        if: steps.plan.outputs.latest == 'yes'
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          docker tag "$IMAGE:$TAG" "$IMAGE:latest"
+          docker push "$IMAGE:latest"

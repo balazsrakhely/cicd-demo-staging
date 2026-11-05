@@ -1,18 +1,15 @@
-# The gate: .github/workflows/ci.yml, second version.
-# Three changes from examples/s2-03/ci-first.yml:
-#   - pull_request is added, so the check reports on PRs
-#   - push is narrowed to main. Without `branches: [main]`, a branch that
-#     has an open PR fires both triggers and you pay for the same run twice;
-#     the PR then shows two checks called `test`.
-#   - go vet runs before the tests, because a vet failure is cheaper to read
-# The job is still called `test`. That name is what the branch ruleset
-# requires, so renaming the job silently disables the gate.
+# .github/workflows/ci.yml — second version. Three jobs.
+#
+#   test ──────> e2e        (e2e needs the image test built)
+#   manifests               (needs nothing, so it starts at the same moment)
+#
+# Nothing here pushes an image anywhere. CI answers one question: may this
+# pull request be merged?
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -28,3 +25,85 @@ jobs:
       - run: go vet ./...
 
       - run: go test -v ./...
+
+      # A tag that exists only inside this run. It never reaches a registry.
+      - name: Build the image
+        run: docker build -t hello:ci .
+
+      # Jobs run on separate machines, so the e2e job cannot see this image.
+      # An artifact is the post box between them: a file, uploaded here and
+      # downloaded there.
+      - name: Pack the image into a file
+        run: docker save hello:ci -o image.tar
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image
+          path: image.tar
+          retention-days: 1
+
+  e2e:
+    needs: test               # waits for test, and is skipped if test fails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: image
+
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: hello
+
+      # The image never existed in a registry, so it is side-loaded into the
+      # cluster's own node. Kubernetes finds it there and pulls nothing.
+      - name: Load the image into the cluster
+        run: kind load image-archive image.tar --name hello
+
+      - name: Point the Deployment at the image we just built
+        run: |
+          sed -i 's|image: .*|image: hello:ci|' k8s/deployment.yaml
+          grep 'image:' k8s/deployment.yaml
+
+      - run: kubectl apply -f k8s/
+
+      # The startup probe has to pass before a Pod counts as ready, so this
+      # wait is the probes from session 1 doing their job.
+      - name: Wait for the rollout
+        run: kubectl rollout status deploy/hello --timeout=90s
+
+      - name: Ask the Service for /healthz
+        run: |
+          kubectl port-forward svc/hello 8080:80 &
+          sleep 3
+          curl --fail --silent --show-error --retry 5 --retry-connrefused \
+            http://localhost:8080/healthz
+          curl --fail --silent http://localhost:8080/
+
+      # `if: always()` runs the step whatever happened above, so a red run
+      # explains itself in its own log — the cluster is gone by the time you
+      # read it.
+      - name: What the cluster thinks, pass or fail
+        if: always()
+        run: |
+          kubectl get pods -o wide
+          kubectl get endpointslices
+          kubectl describe deploy/hello | tail -20
+          kubectl describe pods | grep -A5 -E 'Events:' || true
+
+  # No `needs:`, so this job starts immediately, beside test. It finishes in
+  # seconds while e2e is still waiting for a cluster.
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Are the manifests even valid?
+        run: kubectl apply --dry-run=client -f k8s/
+
+      # A step-level `if` on the event: this line is useful on a pull request
+      # and meaningless on a manual run, so it only runs on the one.
+      - name: Which pull request is this
+        if: github.event_name == 'pull_request'
+        run: echo "PR #${{ github.event.number }} wants to merge into ${{ github.base_ref }}"
