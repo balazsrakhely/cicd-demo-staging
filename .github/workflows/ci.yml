@@ -1,6 +1,9 @@
 # The gate: .github/workflows/ci.yml, second version.
-# Two changes from examples/s2-03/ci-first.yml:
-#   - pull_request is added to the triggers, so the check reports on PRs
+# Three changes from examples/s2-03/ci-first.yml:
+#   - pull_request is added, so the check reports on PRs
+#   - push is narrowed to main. Without `branches: [main]`, a branch that
+#     has an open PR fires both triggers and you pay for the same run twice;
+#     the PR then shows two checks called `test`.
 #   - go vet runs before the tests, because a vet failure is cheaper to read
 # The job is still called `test`. That name is what the branch ruleset
 # requires, so renaming the job silently disables the gate.
@@ -8,6 +11,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
