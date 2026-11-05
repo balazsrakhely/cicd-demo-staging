@@ -1,0 +1,5 @@
+.git
+.github
+k8s
+*_test.go
+README.md

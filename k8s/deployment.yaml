@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  labels:
+    app: hello
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      containers:
+        - name: hello
+          image: ghcr.io/balazsrakhely/cicd-demo:0.1.0
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 16Mi
+            limits:
+              memory: 62Mi
+          startupProbe:           # until this passes, the other two wait
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 1
+            failureThreshold: 10
+          readinessProbe:         # failing: no traffic from the Service
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+          livenessProbe:          # failing: the container is restarted
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
