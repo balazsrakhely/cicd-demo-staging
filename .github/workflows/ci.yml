@@ -1,7 +1,7 @@
 # .github/workflows/ci.yml — second version. Three jobs.
 #
 #   test ──────> e2e        (e2e needs the image test built)
-#   manifests               (needs nothing, so it starts at the same moment)
+#   parallel-demo           (needs nothing, so it starts at the same moment)
 #
 # Nothing here pushes an image anywhere. CI answers one question: may this
 # pull request be merged?
@@ -92,18 +92,21 @@ jobs:
           kubectl describe deploy/hello | tail -20
           kubectl describe pods | grep -A5 -E 'Events:' || true
 
-  # No `needs:`, so this job starts immediately, beside test. It finishes in
-  # seconds while e2e is still waiting for a cluster.
-  manifests:
+  # This job does nothing useful. It is here to be watched: it has no
+  # `needs:`, so it starts at the same moment as test, on its own machine,
+  # and counts to three while test and e2e are still going.
+  parallel-demo:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Are the manifests even valid?
-        run: kubectl apply --dry-run=client -f k8s/
+      - name: Count to three
+        run: |
+          for i in 1 2 3; do
+            echo "step $i, while the other jobs are still running"
+            sleep 5
+          done
 
       # A step-level `if` on the event: this line is useful on a pull request
       # and meaningless on a manual run, so it only runs on the one.
       - name: Which pull request is this
         if: github.event_name == 'pull_request'
-        run: echo "PR #${{ github.event.number }} wants to merge into ${{ github.base_ref }}"
+        run: echo "PR number ${{ github.event.number }} wants to merge into ${{ github.base_ref }}"
