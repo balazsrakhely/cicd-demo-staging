@@ -9,8 +9,8 @@ import (
 func TestRoot(t *testing.T) {
 	rr := httptest.NewRecorder()
 	newMux().ServeHTTP(rr, httptest.NewRequest("GET", "/", nil))
-	if got := rr.Body.String(); got != "hello from my container\n" {
-		t.Errorf("GET / = %q, want %q", got, "hello from my container\n")
+	if got := rr.Body.String(); got != "goodbye from my container\n" {
+		t.Errorf("GET / = %q, want %q", got, "goodbye from my container\n")
 	}
 }
 
