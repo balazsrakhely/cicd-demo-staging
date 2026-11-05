@@ -1,0 +1,19 @@
+# The first workflow: .github/workflows/ci.yml
+# Short on purpose. This is the file you type in front of the room.
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - run: go test -v ./...
