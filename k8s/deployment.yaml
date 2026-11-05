@@ -34,10 +34,10 @@ spec:
           readinessProbe:         # failing: no traffic from the Service
             httpGet:
               path: /healthz
-              port: 9090
+              port: 8080
             periodSeconds: 5
           livenessProbe:          # failing: the container is restarted
             httpGet:
               path: /healthz
-              port: 9090
+              port: 8080
             periodSeconds: 10
