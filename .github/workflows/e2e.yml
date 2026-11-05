@@ -36,7 +36,11 @@ jobs:
       # Waits for the image the build-push workflow is pushing for this same
       # commit. Two workflows triggered by one push run at the same time, and
       # nothing makes them take turns — so this job has to wait for its input.
+      # Skipped when you passed a tag by hand: then you meant that tag, and
+      # waiting ten minutes to be told it does not exist teaches nothing.
+      # Kubernetes gives the better answer, as ImagePullBackOff, in seconds.
       - name: Wait for the image to exist
+        if: inputs.image_tag == ''
         run: |
           image="ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}"
           for i in $(seq 1 40); do
